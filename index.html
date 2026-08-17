@@ -88,6 +88,12 @@ input,select,textarea{background:#17130f;color:#e9dcc3;border:1px solid #5a4632;
 .hide{display:none}
 img.mp{width:100%;border:2px solid #33281f;border-radius:5px;background:#f0e8d6;cursor:zoom-in}
 .trk{display:block;width:100%;text-align:left;margin-bottom:3px;font-size:11.5px;padding:5px 7px}
+#ytwrap{margin:5px 0 7px}
+#ytstage{position:relative;width:100%;padding-top:56.25%;border:1px solid #33281f;border-radius:4px;overflow:hidden;background:#0e0b08}
+#ytstage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+#ytwrap.novid #ytstage{padding-top:0;height:0;border:0}
+#yterr:empty{display:none}
+#yterr{color:#dc8560;margin-top:3px}
 #srch{width:100%;margin-bottom:6px}
 .sr{font-size:12.3px;padding:5px 7px;border-bottom:1px solid #2a211a}
 .sr b{color:#e8c07a}
@@ -128,6 +134,11 @@ body.prep .prepOnly{display:block}.prepOnly{display:none}
    <div class="note">Red = no moment yet tonight.</div></div>
   <div class="panel"><h3>AUDIO — SURVIVES SCROLLING</h3>
    <div class="note" id="now"></div>
+   <div id="ytwrap" class="hide"><div id="ytstage"><div id="ytplayer"></div></div>
+    <div class="row" style="margin-top:3px">
+     <button id="ytpause" onclick="ytToggle()" style="flex:1">Pause</button>
+     <button id="ytvid" onclick="ytVideo()" style="flex:1">Hide video</button></div>
+    <div class="note" id="yterr"></div></div>
    <div class="row"><input type="range" id="vol" min="0" max="1" step="0.01" style="flex:1" oninput="setVol(this.value)"><span class="note" id="volLbl"></span></div>
    <div class="row"><button onclick="stopAudio()" style="width:100%">Fade out</button></div>
    <div style="margin-top:7px"><b style="font-size:10px;color:#d9a441">LOCAL FILES — crossfades, offline</b>
@@ -171,7 +182,7 @@ S.vol=S.vol??0.55;S.aud=S.aud||{};S.spot=S.spot||{};
 const DK={a:null,b:null,cur:'a',timer:null};
 function initAudio(){DK.a=document.getElementById('dka');DK.b=document.getElementById('dkb');
  [DK.a,DK.b].forEach(d=>{d.loop=true;d.volume=0})}
-function crossfade(url,label,ms){ms=ms||2500;
+function crossfade(url,label,ms){ms=ms||2500;ytStop();
  const from=DK[DK.cur],to=DK[DK.cur==='a'?'b':'a'];
  to.src=url;to.volume=0;const p=to.play();if(p&&p.catch)p.catch(()=>{});
  let i=0;const steps=40;clearInterval(DK.timer);
@@ -179,15 +190,53 @@ function crossfade(url,label,ms){ms=ms||2500;
   to.volume=Math.min(S.vol,S.vol*k);from.volume=Math.max(0,S.vol*(1-k));
   if(i>=steps){clearInterval(DK.timer);from.pause();from.removeAttribute('src');DK.cur=(DK.cur==='a'?'b':'a')}},ms/steps);
  S.np=label;save();paintNow()}
-function stopAudio(){clearInterval(DK.timer);[DK.a,DK.b].forEach(d=>{d.pause();d.volume=0});S.np='';save();paintNow()}
-function setVol(v){S.vol=+v;save();const d=DK[DK.cur];if(d)d.volume=S.vol;
+function stopLocal(){clearInterval(DK.timer);[DK.a,DK.b].forEach(d=>{d.pause();d.volume=0})}
+function stopAudio(){stopLocal();ytStop();S.np='';save();paintNow()}
+function setVol(v){S.vol=+v;save();const d=DK[DK.cur];if(d)d.volume=S.vol;ytVol();
  document.getElementById('volLbl').textContent=Math.round(S.vol*100)+'%'}
 function paintNow(){document.getElementById('now').textContent=S.np?('\u266a '+S.np):'nothing playing'}
 function pickLocal(ev,slot){const f=ev.target.files[0];if(!f)return;
  S.ln=S.ln||{};S.ln[slot]=f.name;save();crossfade(URL.createObjectURL(f),f.name);renderRail()}
-function ytPop(kind,id,label){const w=window.open('https://www.youtube.com/watch?v='+id+'&autoplay=1&loop=1&playlist='+id,
- kind==='bat'?'nihBattle':'nihAmb','width=520,height=320');
- if(!w){alert('Popup blocked. Allow popups for this page.');return}S.np=label+' (YouTube)';save();paintNow()}
+/* YouTube plays in the rail itself — no second window to manage mid-combat. */
+const YTP={p:null,ready:false,pending:null};
+(function(){const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';
+ s.onerror=()=>{YTP.dead=true;const e=document.getElementById('yterr');
+  if(e)e.textContent='No line to YouTube. Local files still work.'};
+ document.head.appendChild(s)})();
+window.onYouTubeIframeAPIReady=function(){YTP.ready=true;
+ if(YTP.pending){const q=YTP.pending;YTP.pending=null;ytPlay(q[0],q[1],q[2])}};
+
+function ytPlay(kind,id,label){
+ stopLocal();
+ document.getElementById('yterr').textContent='';
+ document.getElementById('ytwrap').classList.remove('hide');
+ S.np=label+' (YouTube)';save();paintNow();
+ if(YTP.dead){ytFail(id);return}
+ if(!YTP.ready){YTP.pending=[kind,id,label];return}
+ if(YTP.p&&YTP.p.loadVideoById){YTP.p.loadVideoById(id);ytVol();return}
+ YTP.p=new YT.Player('ytplayer',{videoId:id,
+  playerVars:{autoplay:1,controls:1,rel:0,modestbranding:1,playsinline:1},
+  events:{
+   onReady:e=>{ytVol();e.target.playVideo()},
+   onError:()=>ytFail(id),
+   onStateChange:e=>{const b=document.getElementById('ytpause');
+    if(e.data===YT.PlayerState.PLAYING)b.textContent='Pause';
+    else if(e.data===YT.PlayerState.PAUSED)b.textContent='Resume';
+    else if(e.data===YT.PlayerState.ENDED){e.target.seekTo(0);e.target.playVideo()}}}})}
+
+function ytFail(id){document.getElementById('yterr').innerHTML=
+ 'That track blocks embedding. <a href="https://www.youtube.com/watch?v='+id+
+ '" target="_blank" rel="noopener" style="color:#8fb0d8">Open it in a tab</a>, or pick another.';
+ S.np='';save();paintNow()}
+function ytVol(){if(YTP.p&&YTP.p.setVolume)YTP.p.setVolume(Math.round(S.vol*100))}
+function ytToggle(){if(!YTP.p||!YTP.p.getPlayerState)return;
+ if(YTP.p.getPlayerState()===YT.PlayerState.PLAYING)YTP.p.pauseVideo();else YTP.p.playVideo()}
+function ytVideo(){const off=document.getElementById('ytwrap').classList.toggle('novid');
+ document.getElementById('ytvid').textContent=off?'Show video':'Hide video'}
+function ytStop(){if(!YTP.p||!YTP.p.pauseVideo)return;
+ let v=YTP.p.getVolume?YTP.p.getVolume():100;
+ const t=setInterval(()=>{v-=v/5+3;
+  if(v<=1){clearInterval(t);YTP.p.pauseVideo();ytVol()}else YTP.p.setVolume(Math.max(0,v))},70)}
 function ytSearch(q){window.open('https://www.youtube.com/results?search_query='+encodeURIComponent(q),'_blank')}
 
 /* ===== RENDER ===== */
@@ -272,7 +321,7 @@ function onScroll(){const c=currentArea();if(c===S.seen)return;S.seen=c;save();
  document.querySelectorAll('#toc a').forEach(x=>x.classList.toggle('here',x.dataset.id===c));
  renderHooks(c);renderRail()}
 function renderRail(){const t=TRACKS[S.seen]||TRACKS['a4']||{amb:[],bat:[],q:'dnd ambience'};
- const mk=(l,k)=>l.length?l.map(x=>`<button class="trk" onclick="ytPop('${k}','${x[0]}','${x[1].replace(/'/g,'')}')">\u25B6 ${x[1]}</button>`).join(''):'<div class="note">Silence suits this scene.</div>';
+ const mk=(l,k)=>l.length?l.map(x=>`<button class="trk" onclick="ytPlay('${k}','${x[0]}','${x[1].replace(/'/g,'')}')">\u25B6 ${x[1]}</button>`).join(''):'<div class="note">Silence suits this scene.</div>';
  document.getElementById('trkAmb').innerHTML=mk(t.amb,'amb');
  document.getElementById('trkBat').innerHTML=mk(t.bat,'bat');
  document.getElementById('ytq').onclick=()=>ytSearch(t.q);
@@ -342,7 +391,7 @@ document.getElementById('toc').innerHTML='<h5>ACT I \u2014 THE TEMPLE</h5>'+
  AREAS.filter(a=>['cliff','p1','close'].includes(a.id)).map(a=>`<a href="#${a.id}" data-id="${a.id}"><b>${a.t}</b>${a.name}</a>`).join('');
 document.getElementById('book').innerHTML=AREAS.map(areaHTML).join('');
 initAudio();drawDoom();drawHp();drawTruth();drawLr();drawFc();renderSpot();renderHooks('open');renderRail();
-document.getElementById('vol').value=S.vol;setVol(S.vol);paintNow();
+document.getElementById('vol').value=S.vol;setVol(S.vol);S.np='';save();paintNow();
 const nt=document.getElementById('notes');nt.value=S.notes;nt.oninput=()=>{S.notes=nt.value;save()};
 document.getElementById('srch').oninput=e=>doSearch(e.target.value);
 window.addEventListener('scroll',onScroll,{passive:true});onScroll();
