@@ -1,7 +1,12 @@
 # Chronicles of Nihiloros — DM Campaign Tool
 
-A single-file DM screen for the Chronicles of Nihiloros campaign, hosted on GitHub Pages
-so that YouTube ambience links and embeds work (they don't from a `file://` page).
+**[Open the tool →](https://carterterickson.github.io/nihiloros-campaign-tool/)**
+
+A one-page web tool I use to run my D&D campaign, Chronicles of Nihiloros. It puts session notes, NPCs,
+encounters, and background music on one screen.
+
+It's a single `index.html` file hosted on GitHub Pages so that YouTube ambience links and
+embeds work (they don't from a `file://` page).
 
 ## Editing
 
